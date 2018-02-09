@@ -54,6 +54,8 @@ liblttng_ust_runtime_la_SOURCES = \
 	lttng-ust-tracelog-provider.h \
 	getenv.h
 
+liblttng_ust_runtime_la_CFLAGS = -DLTTNG_UST_LIBRARY_VERSION_MAJOR=\"$(LTTNG_UST_LIBRARY_VERSION_MAJOR)\"
+
 if HAVE_PERF_EVENT
 liblttng_ust_runtime_la_SOURCES += \
 	lttng-context-perf-counters.c \
