@@ -226,21 +226,6 @@ struct lttng_ust_tracepoint_dlopen {
 extern struct lttng_ust_tracepoint_dlopen tracepoint_dlopen;
 extern struct lttng_ust_tracepoint_dlopen *tracepoint_dlopen_ptr;
 
-/* Disable tracepoint destructors. */
-int __tracepoints__disable_destructors __attribute__((weak));
-
-/*
- * Programs that have threads that survive after they exit, and
- * therefore call library destructors, should disable the tracepoint
- * destructors by calling tracepoint_disable_destructors(). This will
- * leak the tracepoint instrumentation library shared object, leaving
- * its teardown to the operating system process teardown.
- */
-static inline void tracepoint_disable_destructors(void)
-{
-	__tracepoints__disable_destructors = 1;
-}
-
 /*
  * These weak symbols, the constructor, and destructor take care of
  * registering only _one_ instance of the tracepoints per shared-ojbect
@@ -264,6 +249,47 @@ struct lttng_ust_tracepoint_dlopen tracepoint_dlopen
  */
 struct lttng_ust_tracepoint_dlopen *tracepoint_dlopen_ptr
 	__attribute__((weak, visibility("hidden")));
+
+/*
+ * Tracepoint dynamic linkage handling (callbacks). Hidden visibility: shared
+ * across objects in a module/main executable. The callbacks are used to
+ * control and check if the destructors should be executed.
+ */
+struct lttng_ust_tracepoint_destructors_syms {
+	void (*tracepoint_enable_destructors)(void);
+	void (*tracepoint_disable_destructors)(void);
+	int (*tracepoint_get_destructors_state)(void);
+};
+
+extern struct lttng_ust_tracepoint_destructors_syms tracepoint_destructors_syms;
+extern struct lttng_ust_tracepoint_destructors_syms *tracepoint_destructors_syms_ptr;
+
+struct lttng_ust_tracepoint_destructors_syms tracepoint_destructors_syms
+	__attribute__((weak, visibility("hidden")));
+struct lttng_ust_tracepoint_destructors_syms *tracepoint_destructors_syms_ptr
+	__attribute__((weak, visibility("hidden")));
+
+static inline void tracepoint_disable_destructors(void)
+{
+	if (!tracepoint_dlopen_ptr)
+		tracepoint_dlopen_ptr = &tracepoint_dlopen;
+	if (!tracepoint_destructors_syms_ptr)
+		tracepoint_destructors_syms_ptr = &tracepoint_destructors_syms;
+	if (tracepoint_dlopen_ptr->liblttngust_handle
+			&& tracepoint_destructors_syms_ptr->tracepoint_disable_destructors)
+		tracepoint_destructors_syms_ptr->tracepoint_disable_destructors();
+}
+
+static inline void tracepoint_enable_destructors(void)
+{
+	if (!tracepoint_dlopen_ptr)
+		tracepoint_dlopen_ptr = &tracepoint_dlopen;
+	if (!tracepoint_destructors_syms_ptr)
+		tracepoint_destructors_syms_ptr = &tracepoint_destructors_syms;
+	if (tracepoint_dlopen_ptr->liblttngust_handle
+			&& tracepoint_destructors_syms_ptr->tracepoint_enable_destructors)
+		tracepoint_destructors_syms_ptr->tracepoint_enable_destructors();
+}
 
 #ifndef _LGPL_SOURCE
 static inline void lttng_ust_notrace
@@ -335,8 +361,11 @@ __tracepoints__destroy(void)
 		return;
 	if (!tracepoint_dlopen_ptr)
 		tracepoint_dlopen_ptr = &tracepoint_dlopen;
-	if (!__tracepoints__disable_destructors
-			&& tracepoint_dlopen_ptr->liblttngust_handle
+	if (!tracepoint_destructors_syms_ptr)
+		tracepoint_destructors_syms_ptr = &tracepoint_destructors_syms;
+	if (tracepoint_dlopen_ptr->liblttngust_handle
+			&& tracepoint_destructors_syms_ptr->tracepoint_get_destructors_state
+			&& tracepoint_destructors_syms_ptr->tracepoint_get_destructors_state()
 			&& !__tracepoint_ptrs_registered) {
 		ret = dlclose(tracepoint_dlopen_ptr->liblttngust_handle);
 		if (ret) {
@@ -415,6 +444,8 @@ __tracepoints__ptrs_init(void)
 			dlopen("liblttng-ust-tracepoint.so.0", RTLD_NOW | RTLD_GLOBAL);
 	if (!tracepoint_dlopen_ptr->liblttngust_handle)
 		return;
+	if (!tracepoint_destructors_syms_ptr)
+		tracepoint_destructors_syms_ptr = &tracepoint_destructors_syms;
 	tracepoint_dlopen_ptr->tracepoint_register_lib =
 		URCU_FORCE_CAST(int (*)(struct lttng_ust_tracepoint * const *, int),
 				dlsym(tracepoint_dlopen_ptr->liblttngust_handle,
@@ -423,6 +454,18 @@ __tracepoints__ptrs_init(void)
 		URCU_FORCE_CAST(int (*)(struct lttng_ust_tracepoint * const *),
 				dlsym(tracepoint_dlopen_ptr->liblttngust_handle,
 					"tracepoint_unregister_lib"));
+	tracepoint_destructors_syms_ptr->tracepoint_enable_destructors =
+		URCU_FORCE_CAST(void (*)(void),
+				dlsym(tracepoint_dlopen_ptr->liblttngust_handle,
+					"tp_enable_destructors"));
+	tracepoint_destructors_syms_ptr->tracepoint_disable_destructors =
+		URCU_FORCE_CAST(void (*)(void),
+				dlsym(tracepoint_dlopen_ptr->liblttngust_handle,
+					"tp_disable_destructors"));
+	tracepoint_destructors_syms_ptr->tracepoint_get_destructors_state =
+		URCU_FORCE_CAST(int (*)(void),
+				dlsym(tracepoint_dlopen_ptr->liblttngust_handle,
+					"tp_get_destructors_state"));
 	__tracepoint__init_urcu_sym();
 	if (tracepoint_dlopen_ptr->tracepoint_register_lib) {
 		tracepoint_dlopen_ptr->tracepoint_register_lib(__start___tracepoints_ptrs,
@@ -444,8 +487,9 @@ __tracepoints__ptrs_destroy(void)
 		tracepoint_dlopen_ptr = &tracepoint_dlopen;
 	if (tracepoint_dlopen_ptr->tracepoint_unregister_lib)
 		tracepoint_dlopen_ptr->tracepoint_unregister_lib(__start___tracepoints_ptrs);
-	if (!__tracepoints__disable_destructors
-			&& tracepoint_dlopen_ptr->liblttngust_handle
+	if (tracepoint_dlopen_ptr->liblttngust_handle
+			&& tracepoint_destructors_syms_ptr->tracepoint_get_destructors_state
+			&& tracepoint_destructors_syms_ptr->tracepoint_get_destructors_state()
 			&& !__tracepoint_ptrs_registered) {
 		ret = dlclose(tracepoint_dlopen_ptr->liblttngust_handle);
 		if (ret) {
