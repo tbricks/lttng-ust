@@ -56,6 +56,7 @@
 #include "clock.h"
 #include "../libringbuffer/getcpu.h"
 #include "getenv.h"
+#include "lttng-ust-onload-hack.h"
 
 /*
  * Has lttng ust comm constructor been called ?
@@ -1311,6 +1312,11 @@ restart:
 	}
 	sock_info->socket = ret;
 
+	ret = lttng_ust_onload_hack_bless_fd(sock_info->socket);
+	if (ret != 0)
+		ERR("Error %d with OpenOnload blessing socket fd %d",
+				ret, sock_info->socket);
+
 	if (ust_lock()) {
 		goto quit;
 	}
@@ -1367,6 +1373,11 @@ restart:
 		goto restart;
 	}
 	sock_info->notify_socket = ret;
+
+	ret = lttng_ust_onload_hack_bless_fd(sock_info->notify_socket);
+	if (ret != 0)
+		ERR("Error %d with OpenOnload blessing notify_socket fd %d",
+				ret, sock_info->notify_socket);
 
 	timeout = get_notify_sock_timeout();
 	if (timeout >= 0) {
