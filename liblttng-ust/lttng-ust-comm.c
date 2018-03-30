@@ -58,6 +58,7 @@
 #include "clock.h"
 #include "../libringbuffer/getcpu.h"
 #include "getenv.h"
+#include "lttng-ust-onload-hack.h"
 
 /*
  * Has lttng ust comm constructor been called ?
@@ -1438,6 +1439,12 @@ restart:
 	sock_info->socket = ret;
 
 	ust_unlock();
+
+	ret = lttng_ust_onload_hack_bless_fd(sock_info->socket);
+	if (ret != 0)
+		ERR("Error %d with OpenOnload blessing socket fd %d",
+				ret, sock_info->socket);
+
 	/*
 	 * Unlock/relock ust lock because connect is blocking (with
 	 * timeout). Don't delay constructors on the ust lock for too
@@ -1509,6 +1516,12 @@ restart:
 	sock_info->notify_socket = ret;
 
 	ust_unlock();
+
+	ret = lttng_ust_onload_hack_bless_fd(sock_info->notify_socket);
+	if (ret != 0)
+		ERR("Error %d with OpenOnload blessing notify_socket fd %d",
+				ret, sock_info->notify_socket);
+
 	/*
 	 * Unlock/relock ust lock because connect is blocking (with
 	 * timeout). Don't delay constructors on the ust lock for too

@@ -21,6 +21,7 @@ liblttng_ust_tracepoint_la_CFLAGS = -DUST_COMPONENT="liblttng_ust_tracepoint" $(
 
 liblttng_ust_runtime_la_SOURCES = \
 	lttng-ust-comm.c \
+	lttng-ust-onload-hack.c \
 	lttng-ust-abi.c \
 	lttng-probes.c \
 	lttng-context-provider.c \
