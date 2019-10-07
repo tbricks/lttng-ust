@@ -411,6 +411,7 @@ void lttng_ust_fixup_tls(void)
 	lttng_fixup_nest_count_tls();
 	lttng_fixup_procname_tls();
 	lttng_fixup_ust_mutex_nest_tls();
+	lttng_ust_fixup_perf_counter_tls();
 	lttng_ust_fixup_fd_tracker_tls();
 }
 
@@ -1946,6 +1947,7 @@ void ust_before_fork(sigset_t *save_sigset)
 
 	ust_lock_nocheck();
 	rcu_bp_before_fork();
+	lttng_perf_lock();
 }
 
 static void ust_after_fork_common(sigset_t *restore_sigset)
@@ -1953,6 +1955,7 @@ static void ust_after_fork_common(sigset_t *restore_sigset)
 	int ret;
 
 	DBG("process %d", getpid());
+	lttng_perf_unlock();
 	ust_unlock();
 
 	pthread_mutex_unlock(&ust_fork_mutex);
